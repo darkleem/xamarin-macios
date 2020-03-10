@@ -1390,12 +1390,8 @@ namespace Xamarin.Bundler
 			}
 		}
 
-		// workaround issues like:
-		// * Xcode 4.x versus 4.3 (location of /Developer); and 
-		// * the (optional) installation of "Command-Line Tools" by Xcode
 		public static void RunStrip (IList<string> options)
 		{
-			// either /Developer (Xcode 4.2 and earlier), /Applications/Xcode.app/Contents/Developer (Xcode 4.3) or user override
 			string strip = FindTool ("strip");
 			if (strip == null)
 				throw new MonoTouchException (5301, Errors.MT5301);
@@ -1404,49 +1400,10 @@ namespace Xamarin.Bundler
 				throw new MonoTouchException (5304, true, Errors.MT5304);
 		}
 
-		static string FindTool (string tool)
-		{
-			// either /Developer (Xcode 4.2 and earlier), /Applications/Xcode.app/Contents/Developer (Xcode 4.3) or user override
-			var path = Path.Combine (DeveloperDirectory, "usr", "bin", tool);
-			if (File.Exists (path))
-				return path;
-
-			// Xcode "Command-Line Tools" install a copy in /usr/bin (and it can be there afterward)
-			path = Path.Combine ("/usr", "bin", tool);
-			if (File.Exists (path))
-				return path;
-
-			// Xcode 4.3 (without command-line tools) also has a copy of 'strip'
-			path = Path.Combine (DeveloperDirectory, "Toolchains", "XcodeDefault.xctoolchain", "usr", "bin", tool);
-			if (File.Exists (path))
-				return path;
-
-			return null;
-		}
-
 		public static void CreateDsym (string output_dir, string appname, string dsym_dir)
 		{
 			RunDsymUtil (Path.Combine (output_dir, appname), "-num-threads", "4", "-z", "-o", dsym_dir);
 			RunCommand ("/usr/bin/mdimport", dsym_dir);
-		}
-
-		public static void RunLipo (string output, IEnumerable<string> inputs)
-		{
-			var sb = new List<string> ();
-			sb.AddRange (inputs);
-			sb.Add ("-create");
-			sb.Add ("-output");
-			sb.Add (output);
-			RunLipo (sb);
-		}
-
-		public static void RunLipo (IList<string> options)
-		{
-			string lipo = FindTool ("lipo");
-			if (lipo == null)
-				throw new MonoTouchException (5305, true, Errors.MT5305);
-			if (RunCommand (lipo, options) != 0)
-				throw new MonoTouchException (5306, true, Errors.MT5305);
 		}
 
 		static void RunDsymUtil (params string[] options)
