@@ -57,6 +57,11 @@ public class BindingTouch {
 	public Frameworks Frameworks;
 	public AttributeManager AttributeManager;
 
+	readonly Dictionary<System.Type, Type> ikvm_type_lookup = new Dictionary<System.Type, Type> ();
+	internal Dictionary<System.Type, Type> IKVMTypeLookup {
+		get { return ikvm_type_lookup;  }
+	}
+
 	public TargetFramework TargetFramework {
 		get { return target_framework.Value; }
 	}
@@ -237,7 +242,7 @@ public class BindingTouch {
 			{ "ns=", "Sets the namespace for storing helper classes", v => ns = v },
 			{ "unsafe", "Sets the unsafe flag for the build", v=> unsafef = true },
 			{ "core", "Use this to build product assemblies", v => BindThirdPartyLibrary = false },
-			{ "r=", "Adds a reference", v => references.Add (v) },
+			{ "r|reference=", "Adds a reference", v => references.Add (v) },
 			{ "lib=", "Adds the directory to the search path for the compiler", v => libs.Add (v) },
 			{ "compiler=", "Sets the compiler to use (Obsolete) ", v => compiler = v, true },
 			{ "sdk=", "Sets the .NET SDK to use (Obsolete)", v => {}, true },
@@ -277,7 +282,7 @@ public class BindingTouch {
 			},
 			{ "unified-full-profile", "Launches compiler pointing to XM Full Profile", l => { /* no-op*/ }, true },
 			{ "unified-mobile-profile", "Launches compiler pointing to XM Mobile Profile", l => { /* no-op*/ }, true },
-			{ "target-framework=", "Specify target framework to use. Always required, and the currently supported values are: 'MonoTouch,v1.0', 'Xamarin.iOS,v1.0', 'Xamarin.TVOS,v1.0', 'Xamarin.WatchOS,v1.0', 'XamMac,v1.0', 'Xamarin.Mac,Version=v2.0,Profile=Mobile', 'Xamarin.Mac,Version=v4.5,Profile=Full' and 'Xamarin.Mac,Version=v4.5,Profile=System')", v => SetTargetFramework (v) },
+			{ "target-framework=", "Specify target framework to use. Always required, and the currently supported values are: 'Xamarin.iOS,v1.0', 'Xamarin.TVOS,v1.0', 'Xamarin.WatchOS,v1.0', 'XamMac,v1.0', 'Xamarin.Mac,Version=v2.0,Profile=Mobile', 'Xamarin.Mac,Version=v4.5,Profile=Full' and 'Xamarin.Mac,Version=v4.5,Profile=System')", v => SetTargetFramework (v) },
 			{ "warnaserror:", "An optional comma-separated list of warning codes that should be reported as errors (if no warnings are specified all warnings are reported as errors).", v => {
 					try {
 						if (!string.IsNullOrEmpty (v)) {
@@ -323,8 +328,8 @@ public class BindingTouch {
 		if (!target_framework.HasValue)
 			throw ErrorHelper.CreateError (86);
 
-		switch (target_framework.Value.Identifier.ToLowerInvariant ()) {
-		case "xamarin.ios":
+		switch (target_framework.Value.Platform) {
+		case ApplePlatform.iOS:
 			CurrentPlatform = PlatformName.iOS;
 			nostdlib = true;
 			if (string.IsNullOrEmpty (baselibdll))
@@ -332,7 +337,7 @@ public class BindingTouch {
 			references.Add ("Facades/System.Drawing.Common");
 			ReferenceFixer.FixSDKReferences (GetSDKRoot (), "lib/mono/Xamarin.iOS", references);
 			break;
-		case "xamarin.tvos":
+		case ApplePlatform.TVOS:
 			CurrentPlatform = PlatformName.TvOS;
 			nostdlib = true;
 			if (string.IsNullOrEmpty (baselibdll))
@@ -340,7 +345,7 @@ public class BindingTouch {
 			references.Add ("Facades/System.Drawing.Common");
 			ReferenceFixer.FixSDKReferences (GetSDKRoot (), "lib/mono/Xamarin.TVOS", references);
 			break;
-		case "xamarin.watchos":
+		case ApplePlatform.WatchOS:
 			CurrentPlatform = PlatformName.WatchOS;
 			nostdlib = true;
 			if (string.IsNullOrEmpty (baselibdll))
@@ -348,7 +353,7 @@ public class BindingTouch {
 			references.Add ("Facades/System.Drawing.Common");
 			ReferenceFixer.FixSDKReferences (GetSDKRoot (), "lib/mono/Xamarin.WatchOS", references);
 			break;
-		case "xamarin.mac":
+		case ApplePlatform.MacOSX:
 			CurrentPlatform = PlatformName.MacOSX;
 			nostdlib = true;
 			if (string.IsNullOrEmpty (baselibdll)) {
@@ -463,10 +468,10 @@ public class BindingTouch {
 			Frameworks = new Frameworks (CurrentPlatform);
 
 			Assembly corlib_assembly = universe.LoadFile (LocateAssembly ("mscorlib"));
-			Assembly platform_assembly = baselib;
-			Assembly system_assembly = universe.LoadFile (LocateAssembly ("System"));
-			Assembly binding_assembly = universe.LoadFile (GetAttributeLibraryPath ());
-			TypeManager.Initialize (this, api, corlib_assembly, platform_assembly, system_assembly, binding_assembly);
+			// Explicitly load our attribute library so that IKVM doesn't try (and fail) to find it.
+			universe.LoadFile (GetAttributeLibraryPath ());
+
+			TypeManager.Initialize (this, api, corlib_assembly, baselib);
 
 			foreach (var linkWith in AttributeManager.GetCustomAttributes<LinkWithAttribute> (api)) {
 				if (!linkwith.Contains (linkWith.LibraryName)) {

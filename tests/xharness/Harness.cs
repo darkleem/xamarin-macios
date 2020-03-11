@@ -5,13 +5,15 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
-using Xamarin.Utils;
-using xharness.BCLTestImporter;
+using Xharness.BCLTestImporter;
+using Xharness.Logging;
+using Xharness.Execution;
+using Xharness.Targets;
+using Xharness.Utilities;
 
-namespace xharness
+namespace Xharness
 {
 	public enum HarnessAction
 	{
@@ -23,14 +25,22 @@ namespace xharness
 		Jenkins,
 	}
 
-	public class Harness
+	public interface IHarness {
+		string MlaunchPath { get; }
+		string XcodeRoot { get; }
+		Version XcodeVersion { get; }
+		Task<ProcessExecutionResult> ExecuteXcodeCommandAsync (string executable, IList<string> args, ILog log, TimeSpan timeout);
+	}
+
+	public class Harness : IHarness
 	{
 		public HarnessAction Action { get; set; }
 		public int Verbosity { get; set; }
-		public Log HarnessLog { get; set; }
+		public ILog HarnessLog { get; set; }
 		public bool UseSystem { get; set; } // if the system XI/XM should be used, or the locally build XI/XM.
 		public HashSet<string> Labels { get; } = new HashSet<string> ();
 		public XmlResultJargon XmlJargon { get; set; } = XmlResultJargon.NUnitV3;
+		public IProcessManager ProcessManager { get; set; } = new ProcessManager ();
 
 		public string XIBuildPath {
 			get { return Path.GetFullPath (Path.Combine (RootDirectory, "..", "tools", "xibuild", "xibuild")); }
@@ -684,7 +694,7 @@ namespace xharness
 				AutoConfigureMac (false);
 			}
 			
-			var jenkins = new Jenkins ()
+			var jenkins = new Jenkins.Jenkins ()
 			{
 				Harness = this,
 			};
@@ -776,9 +786,9 @@ namespace xharness
 			}
 		}
 
-		public Task<ProcessExecutionResult> ExecuteXcodeCommandAsync (string executable, IList<string> args, Log log, TimeSpan timeout)
+		public Task<ProcessExecutionResult> ExecuteXcodeCommandAsync (string executable, IList<string> args, ILog log, TimeSpan timeout)
 		{
-			return ProcessHelper.ExecuteCommandAsync (Path.Combine (XcodeRoot, "Contents", "Developer", "usr", "bin", executable), args, log, timeout: timeout);
+			return ProcessManager.ExecuteCommandAsync (Path.Combine (XcodeRoot, "Contents", "Developer", "usr", "bin", executable), args, log, timeout: timeout);
 		}
 
 		public async Task ShowSimulatorList (Log log)
@@ -786,7 +796,7 @@ namespace xharness
 			await ExecuteXcodeCommandAsync ("simctl", new [] { "list" }, log, TimeSpan.FromSeconds (10));
 		}
 
-		public async Task<LogFile> SymbolicateCrashReportAsync (Logs logs, Log log, LogFile report)
+		public async Task<ILogFile> SymbolicateCrashReportAsync (ILogs logs, ILog log, ILogFile report)
 		{
 			var symbolicatecrash = Path.Combine (XcodeRoot, "Contents/SharedFrameworks/DTDeviceKitBase.framework/Versions/A/Resources/symbolicatecrash");
 			if (!File.Exists (symbolicatecrash))
@@ -800,7 +810,7 @@ namespace xharness
 			var name = Path.GetFileName (report.Path);
 			var symbolicated = logs.Create (Path.ChangeExtension (name, ".symbolicated.log"), $"Symbolicated crash report: {name}", timestamp: false);
 			var environment = new Dictionary<string, string> { { "DEVELOPER_DIR", Path.Combine (XcodeRoot, "Contents", "Developer") } };
-			var rv = await ProcessHelper.ExecuteCommandAsync (symbolicatecrash, new [] { report.Path }, symbolicated, TimeSpan.FromMinutes (1), environment);
+			var rv = await ProcessManager.ExecuteCommandAsync (symbolicatecrash, new [] { report.Path }, symbolicated, TimeSpan.FromMinutes (1), environment);
 			if (rv.Succeeded) {;
 				log.WriteLine ("Symbolicated {0} successfully.", report.Path);
 				return symbolicated;
@@ -810,7 +820,7 @@ namespace xharness
 			}
 		}
 
-		public async Task<HashSet<string>> CreateCrashReportsSnapshotAsync (Log log, bool simulatorOrDesktop, string device)
+		public async Task<HashSet<string>> CreateCrashReportsSnapshotAsync (ILog log, bool simulatorOrDesktop, string device)
 		{
 			var rv = new HashSet<string> ();
 
@@ -829,7 +839,7 @@ namespace xharness
 						sb.Add ("--devname");
 						sb.Add (device);
 					}
-					var result = await ProcessHelper.ExecuteCommandAsync (MlaunchPath, sb, log, TimeSpan.FromMinutes (1));
+					var result = await ProcessManager.ExecuteCommandAsync (MlaunchPath, sb, log, TimeSpan.FromMinutes (1));
 					if (result.Succeeded)
 						rv.UnionWith (File.ReadAllLines (tmp));
 				} finally {
@@ -840,85 +850,5 @@ namespace xharness
 			return rv;
 		}
 
-	}
-
-	public class CrashReportSnapshot
-	{
-		public Harness Harness { get; set; }
-		public Log Log { get; set; }
-		public Logs Logs { get; set; }
-		public string LogDirectory { get; set; }
-		public bool Device { get; set; }
-		public string DeviceName { get; set; }
-
-		public HashSet<string> InitialSet { get; private set; }
-		public IEnumerable<string> Reports { get; private set; }
-
-		public async Task StartCaptureAsync ()
-		{
-			InitialSet = await Harness.CreateCrashReportsSnapshotAsync (Log, !Device, DeviceName);
-		}
-
-		public async Task EndCaptureAsync (TimeSpan timeout)
-		{
-			// Check for crash reports
-			var crash_report_search_done = false;
-			var crash_report_search_timeout = timeout.TotalSeconds;
-			var watch = new Stopwatch ();
-			watch.Start ();
-			do {
-				var end_crashes = await Harness.CreateCrashReportsSnapshotAsync (Log, !Device, DeviceName);
-				end_crashes.ExceptWith (InitialSet);
-				Reports = end_crashes;
-				if (end_crashes.Count > 0) {
-					Log.WriteLine ("Found {0} new crash report(s)", end_crashes.Count);
-					List<LogFile> crash_reports;
-					if (!Device) {
-						crash_reports = new List<LogFile> (end_crashes.Count);
-						foreach (var path in end_crashes) {
-							Logs.AddFile (path, $"Crash report: {Path.GetFileName (path)}");
-						}
-					} else {
-						// Download crash reports from the device. We put them in the project directory so that they're automatically deleted on wrench
-						// (if we put them in /tmp, they'd never be deleted).
-						var downloaded_crash_reports = new List<LogFile> ();
-						foreach (var file in end_crashes) {
-							var name = Path.GetFileName (file);
-							var crash_report_target = Logs.Create (name, $"Crash report: {name}", timestamp: false);
-							var sb = new List<string> ();
-							sb.Add ($"--download-crash-report={file}");
-							sb.Add ($"--download-crash-report-to={crash_report_target.Path}");
-							sb.Add ("--sdkroot");
-							sb.Add (Harness.XcodeRoot);
-							if (!string.IsNullOrEmpty (DeviceName)) {
-								sb.Add ("--devname");
-								sb.Add (DeviceName);
-							}
-							var result = await ProcessHelper.ExecuteCommandAsync (Harness.MlaunchPath, sb, Log, TimeSpan.FromMinutes (1));
-							if (result.Succeeded) {
-								Log.WriteLine ("Downloaded crash report {0} to {1}", file, crash_report_target.Path);
-								crash_report_target = await Harness.SymbolicateCrashReportAsync (Logs, Log, crash_report_target);
-								downloaded_crash_reports.Add (crash_report_target);
-							} else {
-								Log.WriteLine ("Could not download crash report {0}", file);
-							}
-						}
-						crash_reports = downloaded_crash_reports;
-					}
-					foreach (var cp in crash_reports) {
-						Harness.LogWrench ("@MonkeyWrench: AddFile: {0}", cp.Path);
-						Log.WriteLine ("    {0}", cp.Path);
-					}
-					crash_report_search_done = true;
-				} else {
-					if (watch.Elapsed.TotalSeconds > crash_report_search_timeout) {
-						crash_report_search_done = true;
-					} else {
-						Log.WriteLine ("No crash reports, waiting a second to see if the crash report service just didn't complete in time ({0})", (int) (crash_report_search_timeout - watch.Elapsed.TotalSeconds));
-						Thread.Sleep (TimeSpan.FromSeconds (1));
-					}
-				}
-			} while (!crash_report_search_done);
-		}
 	}
 }

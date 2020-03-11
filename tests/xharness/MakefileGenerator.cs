@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Xharness.Targets;
 
-namespace xharness
+namespace Xharness
 {
 	public static class MakefileGenerator
 	{
