@@ -88,16 +88,16 @@ namespace Xharness.Jenkins.TestTasks
 				return;
 
 			Console.WriteLine ();
-			Console.WriteLine ("@@@ SolutionPath == null: " + SolutionPath == null);
+			Console.WriteLine ("@@@ SolutionPath == null: " + (SolutionPath == null));
 			Console.WriteLine ("@@@ SolutionPath is empty: " + string.IsNullOrEmpty(SolutionPath));
-			Console.WriteLine ("@@@ TestProject.Path == null: " + TestProject.Path == null);
+			Console.WriteLine ("@@@ TestProject.Path == null: " + (TestProject.Path == null));
 			Console.WriteLine ("@@@ TestProject.Path is empty: " + string.IsNullOrEmpty(TestProject.Path));
-			Console.WriteLine ("@@@ SolutionPath == " + SolutionPath);
+			Console.WriteLine ("@@@ SolutionPath == `" + SolutionPath + "`");
 			Console.WriteLine ("@@@ TestProject.Path == " + TestProject.Path);
 			Console.WriteLine ();
 
 			if (!File.Exists (SolutionPath ?? TestProject.Path))
-				throw new FileNotFoundException ("Could not find the solution whose nugets to restore.", SolutionPath ?? TestProject.Path);
+				throw new FileNotFoundException ("Could not find the solution whose nugets to restore.", string.IsNullOrEmpty(SolutionPath) ? TestProject.Path : SolutionPath);
 
 			// might happen that the project does contain reference projects with nugets, grab the reference projects and ensure
 			// thast they have the nugets restored (usually, watch os test projects
