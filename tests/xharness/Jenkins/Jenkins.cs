@@ -405,7 +405,8 @@ namespace Xharness.Jenkins
 					var clone = task.TestProject.Clone ();
 					var clone_task = Task.Run (async () => {
 						await task.BuildTask.InitialTask; // this is the project cloning above
-						await clone.CreateCopyAsync (task);
+						var paths = await clone.CreateCopyAsync (task);
+						MainLog.WriteLine ($"!@#!@# Copying project from {paths.Item1} to {paths.Item2}");
 
 						var isMac = false;
 						var canSymlink = false;

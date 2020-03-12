@@ -119,13 +119,17 @@ namespace Xharness
 			return rv;
 		}
 
-		internal async Task CreateCopyAsync (TestTask test = null)
+		internal async Task<(string, string)> CreateCopyAsync (TestTask test = null)
 		{
+			Console.WriteLine ($"!@#!@# Copying project {test?.TestName}");
 			var directory = DirectoryUtilities.CreateTemporaryDirectory (test?.TestName ?? System.IO.Path.GetFileNameWithoutExtension (Path));
+			Console.WriteLine ($"!@#!@# Creating temp directory {directory}");
 			Directory.CreateDirectory (directory);
 			var original_path = Path;
+			Console.WriteLine ($"!@#!@# Copying from {original_path}");
 			Path = System.IO.Path.Combine (directory, System.IO.Path.GetFileName (Path));
-
+			Console.WriteLine ($"!@#!@# Copying to {Path}");
+			
 			await Task.Yield ();
 
 			XmlDocument doc;
@@ -151,6 +155,8 @@ namespace Xharness
 			this.ProjectReferences = projectReferences;
 
 			doc.Save (Path);
+
+			return (original_path, Path);
 		}
 
 		public override string ToString()
