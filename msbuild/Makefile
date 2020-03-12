@@ -303,6 +303,7 @@ all-local:: $(MSBUILD_PRODUCTS) .stamp-test-xml
 
 .build-stamp: $(ALL_SOURCES)
 	$(Q) $(SYSTEM_MONO) /Library/Frameworks/Mono.framework/Versions/Current/lib/mono/nuget/NuGet.exe restore
+	$(Q) $(SYSTEM_MSBUILD) ./Xamarin.Localization.MSBuild/Xamarin.Localization.MSBuild.csproj /t:UpdateXlf
 	$(Q) $(SYSTEM_MSBUILD) $(XBUILD_VERBOSITY)
 	$(Q) touch $@
 
